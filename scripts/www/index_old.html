@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="途观驾驶" />
+<meta name="mobile-web-app-capable" content="yes" />
+<title>大众途观模拟驾驶</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #000;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; }
+  .speed-text {
+    position: absolute; top: 30px; right: 40px;
+    color: #fff; font-size: 80px; font-weight: bold;
+    text-shadow: 0 0 12px rgba(0,0,0,0.9);
+    z-index: 20; pointer-events: none;
+  }
+  .btn-group {
+    position: absolute; left: 24px; bottom: 24px; z-index: 30;
+    display: flex; gap: 12px;
+  }
+  .btn-group button {
+    padding: 10px 22px; font-size: 20px; border: none;
+    border-radius: 10px; background: rgba(0,120,255,0.9);
+    color: #fff; cursor: pointer;
+  }
+  .btn-group button:hover { background: rgba(0,120,255,1); }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div class="speed-text" id="speedText">0 km/h</div>
+<div class="btn-group">
+  <button onclick="changeSpeed(-10)">-10</button>
+  <button onclick="changeSpeed(10)">+10</button>
+  <button onclick="setSpeed(0)">停止</button>
+  <button onclick="toggleFullscreen()">全屏</button>
+</div>
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const speedText = document.getElementById("speedText");
+
+let speed = 0;
+const MAX_SPEED = 140;
+let bgOffset = 0;
+let wheelAngle = 0;
+let time = 0;
+let bgImage = null;
+let carBodyImage = null;
+let wheelImage = null;
+const bgFileName = "landscape.png";
+const carFileName = "tiguan.svg?v=7";
+const wheelFileName = "wheel.png";
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("图片加载失败: " + url));
+    img.src = url;
+  });
+}
+
+Promise.all([
+  loadImage(bgFileName),
+  loadImage(carFileName),
+  loadImage(wheelFileName)
+]).then(([bgImg, carImg, wheelImg]) => {
+  bgImage = bgImg;
+  carBodyImage = carImg;
+  wheelImage = wheelImg;
+  startRender();
+}).catch(err => {
+  console.error(err);
+  alert("图片加载失败，请确认 index.html、tiguan.svg、wheel.png、landscape.png 在同一目录");
+});
+
+function startRender() {
+  function resize() {
+    // 手机等高分屏按 DPR 放大画布（最多 2x），宽屏车机保持 1x 省性能
+    const baseW = window.innerWidth;
+    const dpr = baseW > 1400 ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.floor(baseW * dpr);
+    canvas.height = Math.floor(window.innerHeight * dpr);
+  }
+
+  resize();
+  window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", function () {
+    setTimeout(resize, 300);
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", resize);
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawBackground();
+    drawRoad();
+    drawCar();
+    updatePhysics();
+    requestAnimationFrame(render);
+  }
+  render();
+}
+
+// ─── 背景滚动 ───
+function drawBackground() {
+  if (!bgImage) return;
+  const imgH = canvas.height;
+  const imgW = bgImage.width * (imgH / bgImage.height);
+  const offset = bgOffset % imgW;
+  ctx.drawImage(bgImage, offset, 0, imgW, imgH);
+  ctx.drawImage(bgImage, offset - imgW, 0, imgW, imgH);
+  ctx.drawImage(bgImage, offset + imgW, 0, imgW, imgH);
+}
+
+// ─── 道路 ───
+function drawRoad() {
+  const groundY = canvas.height * 0.85;
+  // 路面
+  ctx.fillStyle = "#3a3a3a";
+  ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
+  // 路肩线
+  ctx.fillStyle = "#f5f5dc";
+  ctx.fillRect(0, groundY, canvas.width, 4);
+  // 虚线车道线
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 3;
+  ctx.setLineDash([40, 30]);
+  ctx.lineDashOffset = -bgOffset * 0.8;
+  ctx.beginPath();
+  ctx.moveTo(0, groundY + (canvas.height - groundY) * 0.5);
+  ctx.lineTo(canvas.width, groundY + (canvas.height - groundY) * 0.5);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// ─── 绘制车辆（矢量车身 + 可旋转轮子）──
+function drawCar() {
+  if (!carBodyImage) return;
+
+  const W = canvas.width;
+  const H = canvas.height;
+  const groundY = H * 0.85;
+
+  // 悬挂弹跳动画
+  const bounce = speed > 0 ? Math.sin(time * 8) * 1.0 : 0;
+
+  // 车身尺寸（tiguan.svg 为 1000 x 367）
+  let carH = H * 0.28;
+  let carW = carH * (carBodyImage.width / carBodyImage.height);
+  const maxW = W * 0.8;
+  if (carW > maxW) {
+    carW = maxW;
+    carH = carW * (carBodyImage.height / carBodyImage.width);
+  }
+
+  // 轮子在 SVG 中的相对位置（由矢量化脚本实测得出，车头朝左）
+  const LEFT_X = 0.1892;    // 车头侧轮子
+  const RIGHT_X = 0.7955;   // 车尾侧轮子
+  const WHEEL_Y = 0.780;    // 轮心高度（统一，避免两轮视觉不齐）
+  const WHEEL_R_RATIO = 0.1809;   // 轮半径 / 车高
+
+  const carX = W / 2 - carW / 2;
+  // 让轮底正好落在地面线上
+  const carY = groundY - carH * (WHEEL_Y + WHEEL_R_RATIO) + bounce;
+
+  // 车底阴影
+  ctx.fillStyle = "rgba(0,0,0,0.28)";
+  ctx.beginPath();
+  ctx.ellipse(W / 2, groundY + 4, carW * 0.46, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 车身（SVG 里的轮子已被抠成透明）
+  ctx.drawImage(carBodyImage, carX, carY, carW, carH);
+
+  // 叠加可旋转的轮子
+  const wr = carH * WHEEL_R_RATIO;
+  drawRotatedWheel(carX + carW * LEFT_X, carY + carH * WHEEL_Y, wr, wheelAngle);
+  drawRotatedWheel(carX + carW * RIGHT_X, carY + carH * WHEEL_Y, wr, wheelAngle);
+}
+
+// ─── 绘制旋转轮子 ───
+function drawRotatedWheel(x, y, r, angle) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.drawImage(wheelImage, -r, -r, r * 2, r * 2);
+  ctx.restore();
+}
+
+// ─── 物理更新 ───
+function updatePhysics() {
+  if (speed <= 0) return;
+  time += 0.016;
+  bgOffset += speed * 0.5;
+  wheelAngle += speed * 0.008;
+}
+
+function updateUI() {
+  speedText.textContent = speed + " km/h";
+}
+
+function changeSpeed(delta) {
+  speed += delta;
+  if (speed < 0) speed = 0;
+  if (speed > MAX_SPEED) speed = MAX_SPEED;
+  updateUI();
+}
+
+function setSpeed(val) {
+  speed = val;
+  updateUI();
+}
+
+// 全屏切换（兼容安卓车机 WebView；iOS Safari 不支持页面全屏，需添加到主屏幕）
+function toggleFullscreen() {
+  const el = document.documentElement;
+  const isFull = document.fullscreenElement || document.webkitFullscreenElement;
+  if (!isFull) {
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) {
+      req.call(el);
+    } else {
+      alert("当前浏览器不支持网页全屏。\niPhone / iPad：点 Safari 底部的「分享」按钮 →「添加到主屏幕」，之后从桌面图标打开即可全屏运行。\n安卓车机：点浏览器菜单里的「全屏」或「沉浸模式」。");
+    }
+  } else {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    if (exit) exit.call(document);
+  }
+}
+</script>
+</body>
+</html>
