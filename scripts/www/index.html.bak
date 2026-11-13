@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>途观车载动画</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+  }
+
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    background: #87CEFA;
+  }
+
+  .speed-text {
+    position: absolute;
+    top: 30px;
+    right: 40px;
+    color: #fff;
+    font-size: 80px;
+    font-weight: bold;
+    text-shadow: 0 0 12px rgba(0, 0, 0, 0.9);
+    z-index: 20;
+    pointer-events: none;
+  }
+
+  .btn-group {
+    position: absolute;
+    left: 24px;
+    bottom: 24px;
+    z-index: 30;
+    display: flex;
+    gap: 12px;
+  }
+
+  .btn-group button {
+    padding: 10px 22px;
+    font-size: 20px;
+    border: none;
+    border-radius: 10px;
+    background: rgba(0, 120, 255, 0.9);
+    color: #fff;
+    cursor: pointer;
+  }
+
+  .btn-group button:hover {
+    background: rgba(0, 120, 255, 1);
+  }
+</style>
+</head>
+
+<body>
+  <canvas id="canvas"></canvas>
+  <div class="speed-text" id="speedText">0 km/h</div>
+
+  <div class="btn-group">
+    <button onclick="changeSpeed(-10)">-10</button>
+    <button onclick="changeSpeed(10)">+10</button>
+    <button onclick="setSpeed(0)">停止</button>
+  </div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const speedText = document.getElementById("speedText");
+
+let speed = 0;
+const MAX_SPEED = 140;
+
+let bgOffset = 0;
+let wheelRotate = 0;
+
+let carImage = null;
+let bgImage = null;
+
+const carFileName = "tiguan.png";
+const bgFileName = "landscape.jpg";
+
+// 加载途观图片
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("图片加载失败: " + url));
+    img.src = url;
+  });
+}
+
+// 加载背景和车身
+Promise.all([
+  loadImage(bgFileName),
+  loadImage(carFileName)
+]).then(([bgImg, carImg]) => {
+  bgImage = bgImg;
+  carImage = carImg;
+  startRender();
+}).catch(err => {
+  console.error(err);
+  alert("图片加载失败，请确认 index.html、tiguan.png、landscape.jpg 在同一目录，并使用本地服务打开。");
+});
+
+function startRender() {
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+
+  resize();
+  window.addEventListener("resize", resize);
+
+  function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawBackground();
+    drawCar();
+    updatePhysics();
+    requestAnimationFrame(render);
+  }
+
+  render();
+}
+
+// 绘制滚动背景
+function drawBackground() {
+  if (!bgImage) return;
+
+  const imgH = canvas.height;
+  const imgW = bgImage.width * (imgH / bgImage.height);
+
+  const offset = bgOffset % imgW;
+
+  ctx.drawImage(bgImage, offset, 0, imgW, imgH);
+  ctx.drawImage(bgImage, offset - imgW, 0, imgW, imgH);
+  ctx.drawImage(bgImage, offset + imgW, 0, imgW, imgH);
+}
+
+// 绘制途观车身和旋转轮胎
+function drawCar() {
+  if (!carImage) return;
+
+  const carScale = Math.min(canvas.width, canvas.height) / 1100;
+  const carW = 480 * carScale;
+  const carH = 180 * carScale;
+
+  const carX = canvas.width / 2 - carW / 2;
+  const groundY = canvas.height * 0.86;
+  const carY = groundY - carH;
+
+  // 车身
+  ctx.drawImage(carImage, carX, carY, carW, carH);
+
+  // 轮胎位置
+  const rearWheelX = carX + 76 * carScale;
+  const frontWheelX = carX + carW - 76 * carScale;
+  const wheelR = 38 * carScale;
+
+  drawWheel(rearWheelX, groundY, wheelR);
+  drawWheel(frontWheelX, groundY, wheelR);
+}
+
+// 画旋转轮胎
+function drawWheel(x, y, r) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(wheelRotate);
+
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fillStyle = "#111";
+  ctx.fill();
+
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.72, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 轮毂线条
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 3) * i;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(a) * r * 0.68, Math.sin(a) * r * 0.68);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+// 背景滚动和轮胎旋转速度绑定车速
+function updatePhysics() {
+  if (speed <= 0) return;
+
+  bgOffset += speed * 0.45;
+  wheelRotate += speed * 0.0075;
+}
+
+function updateUI() {
+  speedText.textContent = speed + " km/h";
+}
+
+function changeSpeed(delta) {
+  speed += delta;
+  if (speed < 0) speed = 0;
+  if (speed > MAX_SPEED) speed = MAX_SPEED;
+  updateUI();
+}
+
+function setSpeed(val) {
+  speed = val;
+  updateUI();
+}
+</script>
+</body>
+</html>
