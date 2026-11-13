@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>大众途观模拟驾驶</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+  }
+
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    background: #87CEFA;
+  }
+
+  .speed-text {
+    position: absolute;
+    top: 30px;
+    right: 40px;
+    color: #fff;
+    font-size: 80px;
+    font-weight: bold;
+    text-shadow: 0 0 12px rgba(0, 0, 0, 0.9);
+    z-index: 20;
+    pointer-events: none;
+  }
+
+  .btn-group {
+    position: absolute;
+    left: 24px;
+    bottom: 24px;
+    z-index: 30;
+    display: flex;
+    gap: 12px;
+  }
+
+  .btn-group button {
+    padding: 10px 22px;
+    font-size: 20px;
+    border: none;
+    border-radius: 10px;
+    background: rgba(0, 120, 255, 0.9);
+    color: #fff;
+    cursor: pointer;
+  }
+
+  .btn-group button:hover {
+    background: rgba(0, 120, 255, 1);
+  }
+</style>
+</head>
+
+<body>
+  <canvas id="canvas"></canvas>
+  <div class="speed-text" id="speedText">0 km/h</div>
+
+  <div class="btn-group">
+    <button onclick="changeSpeed(-10)">-10</button>
+    <button onclick="changeSpeed(10)">+10</button>
+    <button onclick="setSpeed(0)">停止</button>
+  </div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const speedText = document.getElementById("speedText");
+
+let speed = 0;
+const MAX_SPEED = 140;
+
+let bgOffset = 0;
+let wheelRotate = 0;
+
+let carImage = null;
+let bgImage = null;
+
+const carFileName = "tiguan.png";
+const bgFileName = "landscape.png";
+
+// 加载图片
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("图片加载失败: " + url));
+    img.src = url;
+  });
+}
+
+// 加载背景图和车
+Promise.all([
+  loadImage(bgFileName),
+  loadImage(carFileName)
+]).then(([bgImg, carImg]) => {
+  bgImage = bgImg;
+  carImage = carImg;
+  startRender();
+}).catch(err => {
+  console.error(err);
+  alert("图片加载失败，请确认 index.html、tiguan.png、landscape.png 在同一目录，并使用本地服务器打开。");
+});
+
+function startRender() {
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+
+  resize();
+  window.addEventListener("resize", resize);
+
+  function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawBackground();
+    drawCar();
+    updatePhysics();
+    requestAnimationFrame(render);
+  }
+
+  render();
+}
+
+// 绘制背景（水平无缝滚动，填满屏幕高度）
+function drawBackground() {
+  if (!bgImage) return;
+
+  const imgH = canvas.height;
+  const imgW = bgImage.width * (imgH / bgImage.height);
+
+  const offset = bgOffset % imgW;
+
+  // 背景向右滚动 = 画面向右偏移 = 像素从左边流出、右边补入 = 背景向右移动
+  // 车头朝右、背景右移 = 车向前开
+  ctx.drawImage(bgImage, offset, 0, imgW, imgH);
+  ctx.drawImage(bgImage, offset - imgW, 0, imgW, imgH);
+  ctx.drawImage(bgImage, offset + imgW, 0, imgW, imgH);
+}
+
+// 绘制途观（保持原图比例，叠加旋转轮胎）
+function drawCar() {
+  if (!carImage) return;
+
+  // 核心约束：车底必须贴到画布 88% 的地面线，车头不超出屏幕顶部
+  const groundY = canvas.height * 0.88;
+  const minTopY = canvas.height * 0.08;
+
+  // 原图尺寸（保留真实宽高比，避免压扁）
+  const imgW = carImage.width;   // 2000
+  const imgH = carImage.height;  // 1333
+  // 车身不透明 bbox（实测）：x=250~1750，y=341~893，车高 552px
+  // 车身宽度 1500，高 552，宽高比约 2.72
+  const carNativeW = 1750 - 250;   // 1500
+  const carNativeH = 893 - 341;    // 552
+  // 车轮相对车身左边缘的水平偏移（px）：后轮 x=480，前轮 x=1420，中心在 x=875
+  const rearWheelRelX = 480 - 250;   // = 230
+  const frontWheelRelX = 1420 - 250; // = 1170
+  const wheelCenterRelY = 780 - 341; // = 439（相对车顶）
+  const wheelRadius0 = 110;
+
+  // 车高：受顶部限制（不低于 8% 屏高）和最大高度（不超过 72% 屏高）双重约束
+  let carH = Math.min(groundY - minTopY, canvas.height * 0.72);
+  // 用车身宽高比决定车宽
+  let carW = carH * (carNativeW / carNativeH);
+
+  // 宽度上限 82%
+  const maxW = canvas.width * 0.82;
+  if (carW > maxW) {
+    carW = maxW;
+    carH = carW * (carNativeH / carNativeW);
+  }
+
+  const carX = canvas.width / 2 - carW / 2;
+  const carY = groundY - carH;
+
+  // 车底阴影
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.28)";
+  ctx.beginPath();
+  ctx.ellipse(canvas.width / 2, groundY + 4, carW * 0.46, carH * 0.03, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // 车身
+  ctx.drawImage(carImage, carX, carY, carW, carH);
+
+  // 轮子坐标映射：以车身不透明区域的边界为基准
+  const scaleX = carW / carNativeW;   // 屏幕车身宽 / 车身像素宽
+  const scaleY = carH / carNativeH;   // 屏幕车身高 / 车身像素高
+  // 后轮
+  const rwx = carX + rearWheelRelX * scaleX;
+  const rwy = carY + wheelCenterRelY * scaleY;
+  const rr = wheelRadius0 * Math.min(scaleX, scaleY);
+  // 前轮
+  const fwx = carX + frontWheelRelX * scaleX;
+  const fwy = carY + wheelCenterRelY * scaleY;
+  const fr = wheelRadius0 * Math.min(scaleX, scaleY);
+
+  drawWheel(rwx, rwy, rr, wheelRotate);
+  drawWheel(fwx, fwy, fr, wheelRotate);
+}
+
+// 绘制旋转轮胎
+function drawWheel(x, y, r, angle) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fillStyle = "#111";
+  ctx.fill();
+
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.72, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 辐条
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 3) * i;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(a) * r * 0.68, Math.sin(a) * r * 0.68);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+// 更新物理（背景从右往左滚动，车速与轮子转角同步）
+function updatePhysics() {
+  if (speed <= 0) return;
+
+  // 背景：bgOffset 增大 → 画面向右偏移 → 像素从左边流出、右边补入 → 背景向右移动
+  // 车头朝右、背景右移 = 车向前开
+  bgOffset += speed * 0.45;
+  // 轮子顺时针转（正 = 向前行驶）
+  wheelRotate += speed * 0.0075;
+}
+
+function updateUI() {
+  speedText.textContent = speed + " km/h";
+}
+
+function changeSpeed(delta) {
+  speed += delta;
+  if (speed < 0) speed = 0;
+  if (speed > MAX_SPEED) speed = MAX_SPEED;
+  updateUI();
+}
+
+function setSpeed(val) {
+  speed = val;
+  updateUI();
+}
+</script>
+</body>
+</html>
