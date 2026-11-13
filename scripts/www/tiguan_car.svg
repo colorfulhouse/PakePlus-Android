@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 300" width="600" height="300">
+  <defs>
+    <linearGradient id="bodyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#e8e8e8;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#c0c0c0;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- 车身主体 -->
+  <path d="M50,200 L100,200 Q120,200 130,180 L150,150 L200,140 L400,140 L450,150 L470,180 Q480,200 500,200 L550,200 L560,190 L560,170 L550,165 L530,160 L520,140 Q515,120 500,110 L480,100 L450,90 L150,90 L120,100 L100,110 Q85,120 80,140 L70,160 L50,165 L40,170 L40,190 Z" fill="url(#bodyGrad)" stroke="#999" stroke-width="2"/>
+  
+  <!-- 车窗 -->
+  <path d="M130,140 L160,140 L180,110 L380,110 L400,140 L420,140 L420,170 L130,170 Z" fill="rgba(100,150,200,0.6)" stroke="#888" stroke-width="1"/>
+  
+  <!-- B柱 -->
+  <line x1="280" y1="110" x2="280" y2="170" stroke="#888" stroke-width="3"/>
+  
+  <!-- 腰线 -->
+  <line x1="80" y1="155" x2="530" y2="155" stroke="rgba(180,180,180,0.8)" stroke-width="2"/>
+  
+  <!-- 车顶行李架 -->
+  <line x1="180" y1="88" x2="420" y2="88" stroke="#ccc" stroke-width="3"/>
+  <line x1="180" y1="95" x2="420" y2="95" stroke="#bbb" stroke-width="2"/>
+  
+  <!-- 后轮拱 -->
+  <path d="M100,200 Q100,160 150,160 Q200,160 200,200" fill="#222" stroke="#111" stroke-width="1"/>
+  
+  <!-- 前轮拱 -->
+  <path d="M400,200 Q400,160 450,160 Q500,160 500,200" fill="#222" stroke="#111" stroke-width="1"/>
+  
+  <!-- 后门把手 -->
+  <rect x="220" y="148" width="30" height="8" fill="#bbb" rx="2"/>
+  
+  <!-- 前门把手 -->
+  <rect x="320" y="148" width="30" height="8" fill="#bbb" rx="2"/>
+  
+  <!-- 尾灯 -->
+  <rect x="45" y="140" width="25" height="35" fill="#c62828" rx="3"/>
+  <rect x="50" y="145" width="15" height="25" fill="#ef5350" rx="2"/>
+  
+  <!-- 前大灯 -->
+  <path d="M520,130 L545,135 L545,165 L525,160 Z" fill="#fffde7" stroke="#ccc" stroke-width="1"/>
+  <line x1="530" y1="145" x2="540" y2="145" stroke="rgba(255,255,220,0.8)" stroke-width="2"/>
+  
+  <!-- 油箱盖 -->
+  <ellipse cx="180" cy="150" rx="8" ry="12" fill="#d5d5d5" stroke="#bbb" stroke-width="1"/>
+</svg>
